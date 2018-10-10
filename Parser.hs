@@ -41,7 +41,9 @@ statement =
   <|> base
 
 base :: Parser AST
-base = chend listexpr expression
+base = 
+  truelist
+  <|> expression
 
 listexpr :: Parser AST
 listexpr =

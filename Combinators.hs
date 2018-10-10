@@ -37,16 +37,6 @@ p >>= q = \inp ->
     Success (r, inp') -> q r (skip inp')
     Error err -> Error err
 
-chend :: Parser a -> Parser a -> Parser a
-chend p q = \inp ->
-  case p (skip inp) of 
-    Error _ -> q (skip inp)
-    Success (r, inp') ->
-      case (skip inp') of
-        null -> Success (r, skip inp')
-        c : cs | T.isStopSymb c ->  Success (r, skip inp')
-        _ -> q (skip inp)
-
 -- Sequential combinator which ignores the result of the first parser
 infixl 7 |>
 (|>) :: Parser a -> Parser b -> Parser b
