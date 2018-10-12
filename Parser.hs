@@ -1,95 +1,172 @@
-module Parser where
+module Parser (parse) where -- only expose the top-level parsing function
 
-import Tokenizer
-import Prelude hiding (lookup)
+import Combinators as C
+import qualified Tokenizer as T
+import Prelude hiding (lookup, (>>=), map, pred, return, elem)
 
-data AST = ASum Operator AST AST
-     | AProd Operator AST AST
-     | APow AST AST
-     | AAssign String AST
-     | ANum Int
-     | AIdent String
-     | AUnary AST
+data AST = ASum T.Operator AST AST
+         | AProd T.Operator AST AST
+         | AAssign String AST
+         | ANum Int
+         | AIdent String
+         | AList AST
+         | ASem AST AST
+         | AComma AST AST
+         | ACon AST AST
+         | AEmpty
 
-parse :: String -> Maybe AST
+-- TODO: Rewrite this without using Success and Error
+parse :: String -> Maybe (Result AST)
 parse input =
-  let ts = tokenize input in
-  case ts of
-  [TEof] -> Nothing
-  _ -> let (tree, ts') = expression ts in
-     if ts' == [TEof]
-     then Just tree
-     else error ("Parsing error on: " ++ show ts')
+  case input of
+    [] -> Nothing
+    _  -> Just (result input)
 
-expression :: [Token] -> (AST, [Token])
-expression ts =
-  let (termNode, ts') = term ts in
-  case lookup ts' of
-  TOp op | op == Minus || op == Plus ->
-    (parseminus termNode op (accept ts'))
-  TAssign ->
-    case termNode of
-    AIdent v -> let (exprNode, ts'') = expression $ accept ts' in
-                    (AAssign v exprNode, ts'')
-    _ -> error "Syntax error: assignment is only possible to identifiers"
-  _ -> (termNode, ts')
+result :: String -> (Result AST)
+result input = 
+  case statement input of
+    Success (tree, ts') ->
+      if null ts'
+      then Success tree
+      else Error ("Syntax error on: " ++ show ts') -- Only a prefix of the input is parsed
+    Error err -> Error err -- Legitimate syntax error
 
-parseminus :: AST -> Operator -> [Token] -> (AST, [Token])
-parseminus tree op ts = 
-  let (termNode, ts') = term ts in
-  case lookup ts' of
-  TOp op' | op' == Minus || op' == Plus ->
-    (parseminus (ASum op tree termNode) op' (accept ts')) 
-  _ -> (ASum op tree termNode, ts')
 
-term :: [Token] -> (AST, [Token])
-term ts =
-  case lookup ts of
-  TOp op | op == Minus -> 
-    let (termNode, ts') = term $ accept ts in
-    (AUnary termNode, ts')
-  _ ->
-    let (degrNode, ts') = degr ts in
-    case lookup ts' of
-    TOp op | op == Mult || op == Div ->
-      (parsemul degrNode op (accept ts'))
-    _ -> (degrNode, ts')
+statement :: Parser AST
+statement = 
+  ( base >>= \b ->
+    semicolon |>
+    statement >>= \st -> return (ASem b st)
+  )
+  <|> base
 
-parsemul :: AST -> Operator -> [Token] -> (AST, [Token])
-parsemul tree op ts = 
-  let (factNode, ts') = degr ts in
-  case lookup ts' of
-  TOp op' | op' == Mult || op' == Div ->
-    (parsemul (AProd op tree factNode) op' (accept ts')) 
-  _ -> (AProd op tree factNode, ts')
+base :: Parser AST
+base = 
+  truelist
+  <|> expression
 
-degr :: [Token] -> (AST, [Token])
-degr ts = 
-  let (factNode, ts') = factor ts in
-  case lookup ts' of
-  TOp op | op == Pow ->
-    let (degrNode, ts'') = degr $ accept ts' in
-    (APow factNode degrNode, ts'')
-  _ -> (factNode, ts')
-    
+listexpr :: Parser AST
+listexpr =
+  ( identifier >>= \(AIdent i) ->
+    assignment |>
+    listexpr >>= \le -> return (AAssign i le)
+  ) 
+  <|> ( list     >>= \ll ->
+        conc     |> 
+        listexpr >>= \lr -> return (ACon ll lr)
+  )
+  <|> list
 
-factor :: [Token] -> (AST, [Token])
-factor ts =
-  case lookup ts of
-  TLParen ->
-    let (exprNode, ts') = expression (accept ts) in
-    case lookup ts' of
-    TRParen -> (exprNode, accept ts')
-    _ -> error "Syntax error: mismatched parentheses"
-  TIdent v -> (AIdent v, accept ts)
-  TNumber d -> (ANum d, accept ts)
-  _ -> error "Syntax error: factor can only be a digit, an identifier or a parenthesised expression"
+list :: Parser AST
+list = 
+  ( lsqbrac |>
+    elements >>= \el ->
+    rsqbrac |> return (AList el)
+  )
+  <|> ( lsqbrac |>
+        rsqbrac |> return (AList (AEmpty))
+      )
+  <|> identifier
 
-lookup :: [Token] -> Token
-lookup = head
+elements :: Parser AST
+elements = 
+  ( expression >>= \e ->
+    comma |>
+    elements >>= \el -> return (AComma e el)
+  )
+  <|>
+  ( listexpr >>= \e ->
+    comma |>
+    elements >>= \el -> return (AComma e el)
+  )
+  <|> truelist
+  <|> expression
 
-accept :: [Token] -> [Token]
-accept = tail
+truelist :: Parser AST
+truelist = 
+  ( lsqbrac |>
+    elements >>= \el ->
+    rsqbrac |> return (AList el)
+  )
+  <|> ( lsqbrac |>
+        rsqbrac |> return (AList (AEmpty))
+      )
+  <|> ( list     >>= \ll ->
+        conc     |> 
+        listexpr >>= \lr -> return (ACon ll lr)
+      )
+  <|> ( identifier >>= \(AIdent i) ->
+        assignment |>
+        truelist >>= \le -> return (AAssign i le)
+      ) 
+expression :: Parser AST
+expression =
+  ( identifier >>= \(AIdent i) ->
+    assignment |>
+    expression >>= \e -> return (AAssign i e)
+  )
+  <|> ( term       >>= \l  -> -- Here the identifier is parsed twice :(
+        plusMinus  >>= \op ->
+        expression >>= \r  -> return (ASum op l r)
+      )
+  <|> term
+
+term :: Parser AST
+term =
+  -- make sure we don't reparse the factor (Term -> Factor (('/' | '*') Term | epsilon ))
+  factor >>= \l ->
+  ( ( divMult >>= \op ->
+      term    >>= \r  -> return (AProd op l r)
+    )
+    <|> return l
+  )
+
+factor :: Parser AST
+factor =
+  ( lparen |>
+    expression >>= \e ->
+    rparen |> return e -- No need to keep the parentheses
+  )
+  <|> identifier
+  <|> digit
+
+digit :: Parser AST
+digit      = map (ANum   . T.pnum) (sat T.isNumber num)
+
+identifier :: Parser AST
+identifier = map (AIdent . T.word) (sat T.isWord ident)
+
+lparen :: Parser Char
+lparen = char '('
+
+rparen :: Parser Char
+rparen = char ')'
+
+assignment :: Parser Char
+assignment = char '='
+
+plusMinus :: Parser T.Operator
+plusMinus = map T.operator (char '+' <|> char '-')
+
+divMult :: Parser T.Operator
+divMult   = map T.operator (char '/' <|> char '*')
+
+conc :: Parser String
+conc = (sat (== "++") elem2)
+
+lsqbrac :: Parser Char
+lsqbrac = char '['
+
+rsqbrac :: Parser Char
+rsqbrac = char ']'
+
+comma :: Parser Char
+comma = char ','
+
+semicolon :: Parser Char
+semicolon = char ';'
+
+
 
 instance Show AST where
   show tree = "\n" ++ show' 0 tree
@@ -101,12 +178,14 @@ instance Show AST where
                   AProd op l r -> showOp op : "\n" ++ show' (ident n) l ++ "\n" ++ show' (ident n) r
                   AAssign  v e -> v ++ " =\n" ++ show' (ident n) e
                   ANum   i     -> show i
-                  AUnary e     -> showOp Minus : "\n" ++ show' n e
-                  APow l r     -> showOp Pow : "\n" ++ show' (ident n) l ++ "\n" ++ show' (ident n) r
+                  ACon l r     -> "++\n" ++ show' (ident n) l ++ "\n" ++ show' (ident n) r
+                  AList l      -> "[\n" ++ show' (ident n) l ++ "]"
+                  AComma l r   -> ",\n" ++ show' n l ++ "\n" ++ show' n r
+                  AEmpty       -> ""
+                  ASem l r     -> show' 0 l ++ "\n\n" ++ show' 0 r
                   AIdent i     -> show i)
       ident = (+1)
-      showOp Plus  = '+'
-      showOp Minus = '-'
-      showOp Mult  = '*'
-      showOp Div   = '/'
-      showOp Pow   = '^'
+      showOp T.Plus  = '+'
+      showOp T.Minus = '-'
+      showOp T.Mult  = '*'
+      showOp T.Div   = '/'
