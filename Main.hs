@@ -1,9 +1,6 @@
-{-# LANGUAGE FlexibleInstances #-}
-
 module Main where
 
 import Parser
-import Combinators (Result (Success, Error))
 
 runParser :: String -> IO ()
 runParser input = do
@@ -11,15 +8,14 @@ runParser input = do
   print $ parse input
   putStrLn ""
 
-instance {-# OVERLAPPING #-} Show a => Show (Maybe (Result a)) where
-  show (Just (Success tree)) = show tree
-  show (Just (Error err)) = "Syntax error: " ++ err
-  show Nothing = "Empty tree"
-
 main :: IO ()
 main = do
-  runParser "l_ist ++ [11, a = var ++ [kjkj], [ [], [   ]]   ]    "
-  runParser "  var = [123]   "
-  runParser "b = a ++ [[], 1,2,3,4]"
-  runParser "   b    ; l ++ [     var = [fd, [ ]     ]]     ; lst = [12, 34, 54 * 47]; 16 * 48 "
-  runParser "a = []; [b = 13, [z], 42 + 6] ++ a ++ [31, 25]; 77"
+  runParser "1 - 2 - 3 - 4 + gfj - 345 * fd - tr^2 "
+  runParser " var = -23 * 123 + 17 + -4"
+  runParser "-(i = 3)"
+  runParser " -(3-4) "
+  runParser " var123var = 98^Int"
+  runParser "var = -two^2^21^bigInt"
+  runParser " var = first_big_var * 978 + second_var"
+  runParser " 2 * a / 4 * 12"
+  runParser "--1*1"
