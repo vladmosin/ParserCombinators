@@ -9,7 +9,6 @@ type Input = String
 -- Result is polymorphic in the ... result
 data Result r = Success r
               | Error String
-              deriving (Show)
 
 -- The result of parsing is some payload r and the suffix which wasn't parsed
 type Parser r = Input -> Result (r, Input)
@@ -120,3 +119,7 @@ map f parser inp =
   case parser inp of
     Success (r, inp') -> Success (f r, inp')
     Error err -> Error err
+
+empty :: Parser Char
+empty [] = Success ('+', [])
+empty _  = Error ("error")

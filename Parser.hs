@@ -8,29 +8,25 @@ data AST = ASum T.Operator AST AST
          | AProd T.Operator AST AST
          | AAssign String AST
          | ANum Int
+         | AUnary AST
+         | ADeg AST AST
          | AIdent String
          | AList AST
          | ASem AST AST
          | AComma AST AST
          | ACon AST AST
          | AEmpty
+         | ANull
+         | AFirst AST
 
 -- TODO: Rewrite this without using Success and Error
-parse :: String -> Maybe (Result AST)
-parse input =
-  case input of
-    [] -> Nothing
-    _  -> Just (result input)
-
-result :: String -> (Result AST)
-result input = 
-  case statement input of
-    Success (tree, ts') ->
-      if null ts'
-      then Success tree
-      else Error ("Syntax error on: " ++ show ts') -- Only a prefix of the input is parsed
-    Error err -> Error err -- Legitimate syntax error
-
+parse :: Parser AST
+parse =
+  ( empty |> return ANull )
+  <|> (statement >>= \st -> 
+       empty     |>   return  (AFirst st)
+       )
+  <|> (zero "error")
 
 statement :: Parser AST
 statement = 
@@ -84,16 +80,17 @@ elements =
 
 truelist :: Parser AST
 truelist = 
+   ( list     >>= \ll ->
+        conc     |> 
+        listexpr >>= \lr -> return (ACon ll lr)
+   )
+   <|>
   ( lsqbrac |>
     elements >>= \el ->
     rsqbrac |> return (AList el)
   )
   <|> ( lsqbrac |>
         rsqbrac |> return (AList (AEmpty))
-      )
-  <|> ( list     >>= \ll ->
-        conc     |> 
-        listexpr >>= \lr -> return (ACon ll lr)
       )
   <|> ( identifier >>= \(AIdent i) ->
         assignment |>
@@ -114,12 +111,30 @@ expression =
 term :: Parser AST
 term =
   -- make sure we don't reparse the factor (Term -> Factor (('/' | '*') Term | epsilon ))
-  factor >>= \l ->
+  degr >>= \l ->
   ( ( divMult >>= \op ->
       term    >>= \r  -> return (AProd op l r)
     )
     <|> return l
   )
+
+degr :: Parser AST
+degr = 
+  unary >>= \l ->
+  ( ( pow   |>
+      degr  >>= \r -> return (ADeg l r)
+    )
+    <|> return l
+
+  )
+
+unary :: Parser AST
+unary = 
+  ( unmin |>
+    unary >>= \e -> return (AUnary e)
+  )
+  <|>
+  factor
 
 factor :: Parser AST
 factor =
@@ -166,6 +181,12 @@ comma = char ','
 semicolon :: Parser Char
 semicolon = char ';'
 
+unmin :: Parser Char
+unmin = char '-'
+
+pow :: Parser Char
+pow = char '^'
+
 
 
 instance Show AST where
@@ -183,6 +204,10 @@ instance Show AST where
                   AComma l r   -> ",\n" ++ show' n l ++ "\n" ++ show' n r
                   AEmpty       -> ""
                   ASem l r     -> show' 0 l ++ "\n\n" ++ show' 0 r
+                  AUnary l     -> "-\n" ++ show' n l
+                  ADeg l r     -> "^\n" ++ show' (ident n) l ++ "\n" ++ show' (ident n) r
+                  ANull        -> "No expression"
+                  AFirst e     -> show' 0 e
                   AIdent i     -> show i)
       ident = (+1)
       showOp T.Plus  = '+'
