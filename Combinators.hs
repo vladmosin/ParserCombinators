@@ -123,3 +123,9 @@ map f parser inp =
 empty :: Parser Char
 empty [] = Success ('+', [])
 empty _  = Error ("error")
+
+map2 :: (a -> b) -> Result a -> Result b
+map2 f inp = 
+  case inp of
+    Success r -> Success (f r)
+    Error err -> Error err

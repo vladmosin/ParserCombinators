@@ -11,9 +11,10 @@ runParser input = do
   print $ parse input
   putStrLn ""
 
-instance {-# OVERLAPPING #-} Show a => Show (Result (a, b)) where
-  show (Success (tree, inp)) = show tree
-  show (Error err) = "Syntax error: " ++ err
+instance {-# OVERLAPPING #-} Show a => Show (Maybe (Result a)) where
+  show (Just (Success tree)) = show tree
+  show (Just (Error err)) = "Syntax error: " ++ err
+  show Nothing = "Empty tree"
 
 main :: IO ()
 main = do
@@ -27,4 +28,4 @@ main = do
   runParser "- ( 3- 4) "
   runParser "1 - 2 - 3 + 4 * 5 /4 / 8 + 3^    5^    6 "
   runParser "[1 + 2, 3 + 4, [7, 8, 9]] ++ [a]; x = []; [1, 2, 4]; var = w^fj           "
-  runParser "jfg + fg    "
+  runParser "jfg + *"

@@ -20,13 +20,22 @@ data AST = ASum T.Operator AST AST
          | AFirst AST
 
 -- TODO: Rewrite this without using Success and Error
-parse :: Parser AST
-parse =
+parse :: String -> Maybe (Result AST)
+parse input = 
+  case (skip input) of
+    [] -> Nothing
+    _  -> Just (map2 first (parse' input))
+
+parse' :: Parser AST
+parse' =
   ( empty |> return ANull )
   <|> (statement >>= \st -> 
-       empty     |>   return  (AFirst st)
+       empty     |>   return  st
        )
   <|> (zero "error")
+
+first :: (a, b) -> a
+first (a, b) = a
 
 statement :: Parser AST
 statement = 
